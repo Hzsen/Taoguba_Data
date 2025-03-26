@@ -6,7 +6,10 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from webdriver_manager.chrome import ChromeDriverManager
 import time
-import re
+
+BASE_URL = "https://www.tgb.cn"
+TARGET_URL = "https://www.tgb.cn/user/blog/blogcata?userID=2166241&bcID=41071"
+OUTPUT_FILE = "blog_links-auto.txt"
 
 def create_driver():
     options = Options()
@@ -17,53 +20,47 @@ def create_driver():
     driver = webdriver.Chrome(service=service, options=options)
     return driver
 
-def scroll_to_bottom(driver):
-    last_height = driver.execute_script("return document.body.scrollHeight")
-    while True:
-        driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
-        time.sleep(1.2)
-        new_height = driver.execute_script("return document.body.scrollHeight")
-        if new_height == last_height:
-            break
-        last_height = new_height
+def extract_links(driver):
+    print(f"🔍 正在访问：{TARGET_URL}")
+    driver.get(TARGET_URL)
 
-def extract_links(driver, url, output_file):
-    print(f"🔍 正在访问：{url}")
-    driver.get(url)
+    # 给 JS 动态渲染留时间
+    time.sleep(3)
 
+    # ✅ 不要切换 iframe！直接查找文章链接
     try:
-        # ✅ 等待文章列表加载（最多10秒）
         WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.CSS_SELECTOR, ".tleftbox a"))
+            EC.presence_of_all_elements_located((By.CSS_SELECTOR, "a.yinchan"))
         )
+        link_elements = driver.find_elements(By.CSS_SELECTOR, "a.yinchan")
     except Exception as e:
-        print(f"[❌ 页面未加载] {e}")
-        return
+        print(f"[❌ 链接未加载] {e}")
+        return []
 
-    scroll_to_bottom(driver)
-    time.sleep(1)
-
-    link_elements = driver.find_elements(By.CSS_SELECTOR, ".tleftbox a")
-    print(f"[DEBUG] 找到 a 标签数量：{len(link_elements)}")
+    print(f"✅ 抓到 {len(link_elements)} 个文章链接")
 
     hrefs = set()
     for el in link_elements:
         href = el.get_attribute("href")
-        if href and re.match(r"^https://www\.tgb\.cn/blog/2166241/\d+$", href):
-            hrefs.add(href)
+        if href and not href.startswith("http"):
+            href = BASE_URL + "/" + href.lstrip("/")
+        hrefs.add(href)
 
-    with open(output_file, "w", encoding="utf-8") as f:
-        for link in sorted(hrefs):
+    return sorted(hrefs)
+
+
+
+def save_links(hrefs):
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as f:
+        for link in hrefs:
             f.write(link + "\n")
-
-    print(f"✅ 共提取 {len(hrefs)} 条链接，已保存到 {output_file}")
+    print(f"✅ 已保存到 {OUTPUT_FILE}")
 
 def run():
     driver = create_driver()
     try:
-        blogcat_url = "https://www.tgb.cn/user/blog/blogcata?userID=2166241&bcID=41071"
-        output_file = "blog_links-auto.txt"
-        extract_links(driver, blogcat_url, output_file)
+        links = extract_links(driver)
+        save_links(links)
     finally:
         driver.quit()
 
